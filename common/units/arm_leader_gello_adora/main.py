@@ -28,7 +28,7 @@ def main():
         print("\nFailed to get arm software information, Error code: ", software_info[0], "\n")
 
     for _event in node:
-
+        {}
 
 
 if __name__ == "__main__":

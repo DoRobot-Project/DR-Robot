@@ -1,16 +1,23 @@
 import os
 import pyarrow as pa
-
 from dora import Node
 from Robotic_Arm.rm_robot_interface import *
 
 
-class RealmanArm:
-    def __init__(self, id, ip, port, start_pose, joint_p_limit, joint_n_limit):
-        self.start_pose = start_pose
-        self.joint_p_limit = joint_p_limit
-        self.joint_n_limit = joint_n_limit
+id = os.getenv("ARM_ID", "arm_right")       # ARM_ID: Arm identifier; defaults to "arm_right" if not set
+ip = os.getenv("ARM_IP", "192.168.1.19")    # ARM_IP: Connection IP address; defaults to "192.168.1.18" if not set
+port = int(os.getenv("ARM_PORT", "8080"))   # ARM_PORT: Connection port number; defaults to 8080 if not set
 
+start_pose_str = os.getenv("START_POSE", "0.0, 0.0, 0.0, 0.0, 0.0, 0.0")
+joint_p_limit_str = os.getenv("JOINT_P_LIMIT", "0.0, 0.0, 0.0, 0.0, 0.0, 0.0")
+joint_n_limit_str = os.getenv("JOINT_N_LIMIT", "0.0, 0.0, 0.0, 0.0, 0.0, 0.0")
+start_pose = [float(x) for x in start_pose_str.split(',')]
+joint_p_limit = [float(x) for x in joint_p_limit_str.split(',')]
+joint_n_limit = [float(x) for x in joint_n_limit_str.split(',')]
+
+
+class RealmanArm:
+    def __init__(self):
         self.arm = RoboticArm(rm_thread_mode_e.RM_TRIPLE_MODE_E)
         
         handle = self.arm.rm_create_robot_arm(ip, port)
@@ -38,11 +45,11 @@ class RealmanArm:
         self.logs = {}
     
     def movej_cmd(self, joint):
-        clipped_joint = max(self.joint_n_limit[:7], min(self.joint_p_limit[:7], joint[:7]))
+        clipped_joint = max(joint_n_limit[:7], min(joint_p_limit[:7], joint[:7]))
         self.arm.rm_movej(clipped_joint, 30, 0, 0, 0)
     
     def movej_canfd(self, joint):
-        clipped_joint = max(self.joint_n_limit[:7], min(self.joint_p_limit[:7], joint[:7]))
+        clipped_joint = max(joint_n_limit[:7], min(joint_p_limit[:7], joint[:7]))
         self.arm.rm_movej_canfd(clipped_joint, True, 0, 1, 50)
 
     def write_single_register(self, gripper):
@@ -62,17 +69,6 @@ class RealmanArm:
 
 
 def main():
-    id = os.getenv("ARM_ID", "arm_right")    # 如果未设置，默认使用 "arm_right"
-    ip = os.getenv("ARM_IP", "192.168.1.19")    # 如果未设置，默认使用 "192.168.1.18"
-    port = int(os.getenv("ARM_PORT", "8080"))   # 如果未设置，默认使用 8080
-
-    start_pose_str = os.getenv("START_POSE", "0.0, 0.0, 0.0, 0.0, 0.0, 0.0")
-    joint_p_limit_str = os.getenv("JOINT_P_LIMIT", "0.0, 0.0, 0.0, 0.0, 0.0, 0.0")
-    joint_n_limit_str = os.getenv("JOINT_N_LIMIT", "0.0, 0.0, 0.0, 0.0, 0.0, 0.0")
-    start_pose = [float(x) for x in start_pose_str.split(',')]
-    joint_p_limit = [float(x) for x in joint_p_limit_str.split(',')]
-    joint_n_limit = [float(x) for x in joint_n_limit_str.split(',')]
-
     node = Node()
 
     main_arm = RealmanArm(ip, port, start_pose, joint_p_limit, joint_n_limit)
@@ -81,11 +77,11 @@ def main():
         event_type = event["type"]
 
         if event_type == "INPUT":
-            if event["id"] == "movej":
+            if event["id"] == "movej-cmd":
                 joint = event["value"].to_pylist()
                 main_arm.movej_cmd(joint)
                 
-            if event["id"] == "movej-canfd":
+            if event["id"] == "movej":
                 joint = event["value"].to_pylist()
                 main_arm.movej_canfd(joint)
 
