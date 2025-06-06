@@ -1,6 +1,6 @@
 # install
 
-```
+```sh
 pip install tqdm 
 pip install pynput
 pip install draccus>=0.10.0
