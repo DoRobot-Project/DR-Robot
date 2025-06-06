@@ -10,11 +10,22 @@ HORIZONTAL_POSITION = np.array([0, 0, 0, 0, 0, 0, 0, 0])
 TARGET_90_DEGREE_POSITION = np.array([0, 0, 0, 0, 0, 0, 0, 0])
 DEFAULT_DRIVE_MODE = np.array([False, False, False, False, False, False, False, False])
 GRIPPER_OPEN = np.array([600])
+SCALE_FACTOR = 90 / 1024  # 电机值到关节角度的比例系数
+GRIPPER_SCALE = 100 / 600  # 夹爪转换比例系数
 
 
 id = os.getenv("ARM_ID", "arm_right")           # ARM_ID: Arm identifier; defaults to "arm_right" if not set
 port = os.getenv("ARM_PORT", "/dev/ttyUSB0")    # ARM_PORT: Connection USB port; defaults to /dev/ttyUSB0 if not set
 ctrl_key = os.getenv("CTRL_KEY", 'd')           # CTRL_KEY: The key that controls the change of the robotic arm's functions.
+
+start_pose_str = os.getenv("START_POSE", "0.0, 0.0, 0.0, 0.0, 0.0, 0.0")
+joint_p_limit_str = os.getenv("JOINT_P_LIMIT", "0.0, 0.0, 0.0, 0.0, 0.0, 0.0")
+joint_n_limit_str = os.getenv("JOINT_N_LIMIT", "0.0, 0.0, 0.0, 0.0, 0.0, 0.0")
+start_pose = [float(x) for x in start_pose_str.split(',')]
+joint_p_limit = [float(x) for x in joint_p_limit_str.split(',')]
+joint_n_limit = [float(x) for x in joint_n_limit_str.split(',')]
+
+node = Node()
 
 
 @cache
@@ -110,6 +121,7 @@ def compute_nearest_rounded_positions(positions: np.array) -> np.array:
             for i in range(len(positions))
         ]
     )
+
 
 class DynamixelArm:
     def __init__(self):
@@ -207,34 +219,34 @@ class DynamixelArm:
             f"Please move the {id} to the horizontal position.)"
         )
 
-        while True:
-            current = self.arm.read("Present_Current")
-            pos = self.arm.read("Present_Position")
-            print(f"current = {current}")
-            print(f"pos = {pos}")
-            for index, value in enumerate(current, start=0):
-                if value >> 15 == 1:
-                    buma = value  # 补码（这里实际上只是获取 value[0] 的值）
-                    fanma = buma - 1  # 反码（这里实际上是 value[0] 减 1）
-                    yuanma = int(format(~fanma & 0xFFFF, '016b'), 2)  # 原码（这里是对 fanma 进行按位取反操作）  
-                    p_current = yuanma * -1
-                else:
-                    p_current = float(value)
-                print(f"index = {index}, value = {value}, p_current = {p_current}")
-                print(f"index = {index}, current[{index}] = {current[index]}")
-                print(f"index = {index}, pos[{index}] = {pos[index]}")
-                print(f"index = {index}, arm.motor_names[{index}] = {self.arm.motor_names[index]}")
-                if abs(p_current) >= 150:
-                    self.arm.write("Goal_Position", pos[index], self.arm.motor_names[index])
-            if events["complete"]:
-                old_gripper = self.arm.read("Present_Position", "gripper")
-                print(f"Will complete {id} calibration")
-                while True:
-                    gripper = self.arm.read("Present_Position", "gripper")
-                    print(f"gripper = {gripper}")
-                    if abs(gripper - old_gripper) >= 150:
-                        break
-                break
+        # while True:
+        #     current = self.arm.read("Present_Current")
+        #     pos = self.arm.read("Present_Position")
+        #     print(f"current = {current}")
+        #     print(f"pos = {pos}")
+        #     for index, value in enumerate(current, start=0):
+        #         if value >> 15 == 1:
+        #             buma = value  # 补码（这里实际上只是获取 value[0] 的值）
+        #             fanma = buma - 1  # 反码（这里实际上是 value[0] 减 1）
+        #             yuanma = int(format(~fanma & 0xFFFF, '016b'), 2)  # 原码（这里是对 fanma 进行按位取反操作）  
+        #             p_current = yuanma * -1
+        #         else:
+        #             p_current = float(value)
+        #         print(f"index = {index}, value = {value}, p_current = {p_current}")
+        #         print(f"index = {index}, current[{index}] = {current[index]}")
+        #         print(f"index = {index}, pos[{index}] = {pos[index]}")
+        #         print(f"index = {index}, arm.motor_names[{index}] = {self.arm.motor_names[index]}")
+        #         if abs(p_current) >= 150:
+        #             self.arm.write("Goal_Position", pos[index], self.arm.motor_names[index])
+        #     if events["complete"]:
+        #         old_gripper = self.arm.read("Present_Position", "gripper")
+        #         print(f"Will complete {id} calibration")
+        #         while True:
+        #             gripper = self.arm.read("Present_Position", "gripper")
+        #             print(f"gripper = {gripper}")
+        #             if abs(gripper - old_gripper) >= 150:
+        #                 break
+        #         break
 
         if not is_headless():
             if listener is not None:
@@ -243,18 +255,14 @@ class DynamixelArm:
         # Get true drive mode from 90°
         present_positions = apply_offset_and_drivemode(self.arm.read("Present_Position"), horizontal_homing_offset, DEFAULT_DRIVE_MODE)
         nearest_positions = compute_nearest_rounded_positions(present_positions)
-
         drive_mode = []
         for i in range(len(nearest_positions)):
             drive_mode.append(nearest_positions[i] != TARGET_90_DEGREE_POSITION[i])
 
-
         # Get offset from 90°
-        present_positions = apply_offset_and_drivemode(self.arm.read("Present_Position"), np.array([0, 0, 0, 0, 0, 0, 0, 0]), drive_mode)
+        present_positions = apply_offset_and_drivemode(self.arm.read("Present_Position"), HORIZONTAL_POSITION, drive_mode)
         nearest_positions = compute_nearest_rounded_positions(present_positions)
         homing_offset = compute_corrections(nearest_positions, drive_mode, TARGET_90_DEGREE_POSITION)
-
-
 
         # Invert offset for all drive_mode servos
         for i in range(len(drive_mode)):
@@ -279,32 +287,45 @@ class DynamixelArm:
             calibration[motor_name] = (homing_offset[idx], drive_mode[idx])
         self.arm.set_calibration(calibration)
     
-    def movej_cmd(self, joint):
-        clipped_joint = max(joint_n_limit[:7], min(joint_p_limit[:7], joint[:7]))
-        self.arm.rm_movej(clipped_joint, 30, 0, 0, 0)
-    
-    def movej_canfd(self, joint):
-        clipped_joint = max(joint_n_limit[:7], min(joint_p_limit[:7], joint[:7]))
-        self.arm.rm_movej_canfd(clipped_joint, True, 0, 1, 50)
+    def movej(self, joint):
+        # clipped_joint = max(joint_n_limit[:7], min(joint_p_limit[:7], joint[:7]))
+        # self.arm.rm_movej(clipped_joint, 30, 0, 0, 0)
+        {}  #TODO
 
-    def write_single_register(self, gripper):
+    def ctrl_gripper(self, gripper):
         clipped_gripper = max(0, min(100, gripper))
-        self.arm.rm_write_single_register(self.peripheral, clipped_gripper)
+        # self.arm.write
+        # self.arm.rm_write_single_register(self.peripheral, clipped_gripper)
+        {}  #TODO
 
     def read_joint_degree(self):
-        _num, joint_read = self.arm.rm_get_joint_degree()
+        joint_read = []
+        servo_pos = self.arm.read("Present_Position")
+        
+        for i in range(7):
+            value = round(servo_pos * SCALE_FACTOR, 2)  # 数值转换
+
+            # # 特定关节取反（3号和5号）
+            # if i in {3, 5}:
+            #     value = -value
+
+            # 限幅
+            clamped_value = max(joint_n_limit[i], min(joint_p_limit[i], value))
+
+            joint_read.append(clamped_value)
+
         return joint_read
     
     def stop(self):
-        self.arm.rm_set_arm_stop()
+        # self.arm.rm_set_arm_stop()
+        {}  #TODO
     
     def disconnect(self):
-        self.arm.rm_close_modbus_mode(1)
+        # self.arm.rm_close_modbus_mode(1)
         self.is_connected = False
+        {}  #TODO
 
 def main():
-    node = Node()
-
     main_arm = DynamixelArm()
 
     for event in node:
@@ -313,11 +334,11 @@ def main():
         if event_type == "INPUT":
             if event["id"] == "movej":
                 joint = event["value"].to_pylist()
-                main_arm.movej_canfd(joint)
+                main_arm.movej(joint)
 
             if event["id"] == "gripper":
                 gripper = event["value"]
-                main_arm.write_single_register(gripper)
+                main_arm.ctrl_gripper(gripper)
 
             if event["id"] == "read-joint":
                 read_joint = main_arm.read_joint_degree()
