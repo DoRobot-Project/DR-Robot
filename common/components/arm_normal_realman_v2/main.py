@@ -15,6 +15,8 @@ start_pose = [float(x) for x in start_pose_str.split(',')]
 joint_p_limit = [float(x) for x in joint_p_limit_str.split(',')]
 joint_n_limit = [float(x) for x in joint_n_limit_str.split(',')]
 
+node = Node()
+
 
 class RealmanArm:
     def __init__(self):
@@ -69,8 +71,6 @@ class RealmanArm:
 
 
 def main():
-    node = Node()
-
     main_arm = RealmanArm(ip, port, start_pose, joint_p_limit, joint_n_limit)
 
     for event in node:
